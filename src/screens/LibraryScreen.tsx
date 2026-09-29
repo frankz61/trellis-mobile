@@ -4,11 +4,13 @@ import type { AppServices } from '../app/bootstrap';
 import { grammarLabel } from '../domain/knowledge';
 import type { MistakeEntry, VocabularyEntry } from '../domain/learning';
 import { maxLevel } from '../domain/mastery';
-import { Card, colors, Heading, Notice, Page, styles } from '../components/ui';
+import { Button, Card, colors, Heading, Notice, Page, styles } from '../components/ui';
+import { KnowledgeGraphView } from './KnowledgeGraphView';
 
 export function LibraryScreen({ services }: { services: AppServices }) {
   const [data, setData] = useState<{ words: VocabularyEntry[]; mistakes: MistakeEntry[] } | null>(null);
   const [error, setError] = useState('');
+  const [view, setView] = useState<'list' | 'graph'>('list');
   useEffect(() => {
     let active = true;
     Promise.all([services.learning.vocabulary(), services.learning.mistakes()]).then(([words, mistakes]) => {
@@ -18,30 +20,37 @@ export function LibraryScreen({ services }: { services: AppServices }) {
   }, [services]);
   return <Page>
     <Heading eyebrow="WORDS THAT STAY" title="让学过的，留下来。" subtitle="生词与错因，连接每一次真实的表达。" />
-    {error ? <Notice text={error} error /> : null}
-    <Card>
-      <Text style={styles.sectionTitle}>我的生词</Text>
-      {!data ? <Notice text="正在读取…" /> : data.words.length === 0
-        ? <Text style={styles.body}>还没有收录单词。和教练聊天时用到的生词会记录在这里。</Text>
-        : data.words.map((word) => <View key={word.id} style={local.entry}>
-          <View style={local.entryHead}>
-            <Text style={local.lemma}>{word.lemma}</Text>
-            <Text style={local.level} accessibilityLabel={`掌握度 ${word.level} / ${maxLevel}`}>{'●'.repeat(word.level)}{'○'.repeat(maxLevel - word.level)}</Text>
-          </View>
-          <Text style={styles.body}>{word.meaning}</Text>
-        </View>)}
-    </Card>
-    <Card>
-      <Text style={styles.sectionTitle}>我的错因</Text>
-      {!data ? <Notice text="正在读取…" /> : data.mistakes.length === 0
-        ? <Text style={styles.body}>还没有错因记录。每一次纠错都将保留原句、修改建议与解释。</Text>
-        : data.mistakes.map((mistake) => <View key={mistake.id} style={local.entry}>
-          <Text style={local.tag}>{grammarLabel(mistake.type)}</Text>
-          <Text style={[styles.body, local.original]}>{mistake.original}</Text>
-          <Text style={local.corrected}>→ {mistake.corrected}</Text>
-          {mistake.explanation ? <Text style={styles.notice}>{mistake.explanation}</Text> : null}
-        </View>)}
-    </Card>
+    <View style={styles.row}>
+      {([['list', '列表'], ['graph', '图谱']] as const).map(([value, label]) => <View key={value} style={{ flex: 1 }}>
+        <Button label={label} secondary={view !== value} selected={view === value} onPress={() => setView(value)} />
+      </View>)}
+    </View>
+    {view === 'graph' ? <KnowledgeGraphView services={services} /> : <>
+      {error ? <Notice text={error} error /> : null}
+      <Card>
+        <Text style={styles.sectionTitle}>我的生词</Text>
+        {!data ? <Notice text="正在读取…" /> : data.words.length === 0
+          ? <Text style={styles.body}>还没有收录单词。和教练聊天时用到的生词会记录在这里。</Text>
+          : data.words.map((word) => <View key={word.id} style={local.entry}>
+            <View style={local.entryHead}>
+              <Text style={local.lemma}>{word.lemma}</Text>
+              <Text style={local.level} accessibilityLabel={`掌握度 ${word.level} / ${maxLevel}`}>{'●'.repeat(word.level)}{'○'.repeat(maxLevel - word.level)}</Text>
+            </View>
+            <Text style={styles.body}>{word.meaning}</Text>
+          </View>)}
+      </Card>
+      <Card>
+        <Text style={styles.sectionTitle}>我的错因</Text>
+        {!data ? <Notice text="正在读取…" /> : data.mistakes.length === 0
+          ? <Text style={styles.body}>还没有错因记录。每一次纠错都将保留原句、修改建议与解释。</Text>
+          : data.mistakes.map((mistake) => <View key={mistake.id} style={local.entry}>
+            <Text style={local.tag}>{grammarLabel(mistake.type)}</Text>
+            <Text style={[styles.body, local.original]}>{mistake.original}</Text>
+            <Text style={local.corrected}>→ {mistake.corrected}</Text>
+            {mistake.explanation ? <Text style={styles.notice}>{mistake.explanation}</Text> : null}
+          </View>)}
+      </Card>
+    </>}
     <Notice text="记录来自模型对你发言的分析，可能有误判；后续版本会支持删除条目。" />
   </Page>;
 }

@@ -1,6 +1,7 @@
 import type { BackupRow, BackupTable } from '../domain/backup';
 import type { ConversationMessage, ConversationSession, MessageStatus } from '../domain/conversation';
 import type { Extraction } from '../domain/knowledge';
+import type { GraphSnapshot } from '../domain/graph';
 import type { LearningSummary, MistakeEntry, TaskStatus, VocabularyEntry } from '../domain/learning';
 import type { WordMastery } from '../domain/mastery';
 import type { AttemptStatus, DailyPlan, Exercise, GeneratedExercise, ReviewAttempt, ReviewTarget, TargetType } from '../domain/practice';
@@ -21,6 +22,11 @@ export interface CredentialStore {
   get(ref: string): Promise<string | null>;
   set(ref: string, value: string): Promise<void>;
   remove(ref: string): Promise<void>;
+}
+
+// Everything the knowledge-graph view draws, for one learner.
+export interface GraphRepository {
+  snapshot(profileId: string): Promise<GraphSnapshot>;
 }
 
 export interface LearningRepository {

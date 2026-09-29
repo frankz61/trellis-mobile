@@ -13,6 +13,7 @@ import { VoiceSettingsService } from '../application/voice-settings-service';
 import { SqliteBackupRepository } from '../infrastructure/database/backup-repository';
 import { SqliteConversationRepository } from '../infrastructure/database/conversation-repository';
 import { SqliteKnowledgeRepository } from '../infrastructure/database/knowledge-repository';
+import { SqliteGraphRepository } from '../infrastructure/database/graph-repository';
 import { migrate, schemaVersion } from '../infrastructure/database/migrations';
 import { SqlitePracticeRepository } from '../infrastructure/database/practice-repository';
 import { SqliteLearningRepository, SqliteSettingsRepository, SqliteVoiceSettingsRepository } from '../infrastructure/database/repositories';
@@ -61,6 +62,7 @@ async function initialize() {
       voiceSettings: new VoiceSettingsService(voiceRepository, voiceAccess, credentials, randomUUID),
       access,
       learning: new SqliteLearningRepository(database),
+      graph: new SqliteGraphRepository(database),
       conversation: new ConversationService({
         profileId, repository: conversationRepository, access, createId: randomUUID, knowledge: knowledgeRepository,
         afterReply: (userMessageId) => knowledge.enqueueExtraction(userMessageId),
