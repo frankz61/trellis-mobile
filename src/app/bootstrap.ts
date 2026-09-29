@@ -8,16 +8,20 @@ import { KnowledgeService } from '../application/knowledge-service';
 import { ModelAccess } from '../application/model-access';
 import { PracticeService } from '../application/practice-service';
 import { SettingsService } from '../application/settings-service';
+import { createVoiceRouter, VoiceAccess } from '../application/voice-access';
+import { VoiceSettingsService } from '../application/voice-settings-service';
 import { SqliteBackupRepository } from '../infrastructure/database/backup-repository';
 import { SqliteConversationRepository } from '../infrastructure/database/conversation-repository';
 import { SqliteKnowledgeRepository } from '../infrastructure/database/knowledge-repository';
 import { migrate, schemaVersion } from '../infrastructure/database/migrations';
 import { SqlitePracticeRepository } from '../infrastructure/database/practice-repository';
-import { SqliteLearningRepository, SqliteSettingsRepository } from '../infrastructure/database/repositories';
+import { SqliteLearningRepository, SqliteSettingsRepository, SqliteVoiceSettingsRepository } from '../infrastructure/database/repositories';
 import { SqliteTaskRepository } from '../infrastructure/database/task-repository';
 import { backupFiles } from '../infrastructure/files/backup-files';
 import { createOpenAiCompatibleGateway } from '../infrastructure/models/openai-compatible';
 import { credentials } from '../infrastructure/secure-storage/credentials';
+import { createOnlineRecognition } from '../infrastructure/speech/online-recognition';
+import { createOnlineSpeech } from '../infrastructure/speech/online-speech';
 import { systemRecognition } from '../infrastructure/speech/system-recognition';
 import { systemSpeech } from '../infrastructure/speech/system-speech';
 
@@ -43,9 +47,18 @@ async function initialize() {
       conversation: conversationRepository, access, createId: randomUUID,
     });
     await knowledge.recover();
+    const voiceRepository = new SqliteVoiceSettingsRepository(database);
+    const voiceAccess = new VoiceAccess(voiceRepository, settingsRepository, credentials);
+    // Which engine answers is decided per call from the saved settings.
+    const voice = createVoiceRouter(voiceAccess, {
+      system: { recognition: systemRecognition, speech: systemSpeech },
+      onlineRecognition: createOnlineRecognition,
+      onlineSpeech: createOnlineSpeech,
+    });
     return {
       profileId,
       settings: new SettingsService(settingsRepository, credentials, randomUUID),
+      voiceSettings: new VoiceSettingsService(voiceRepository, voiceAccess, credentials, randomUUID),
       access,
       learning: new SqliteLearningRepository(database),
       conversation: new ConversationService({
@@ -59,8 +72,8 @@ async function initialize() {
       backup: new BackupService({
         profileId, repository: new SqliteBackupRepository(database), files: backupFiles, schemaVersion, appVersion: appVersion,
       }),
-      speech: systemSpeech,
-      recognition: systemRecognition,
+      speech: voice.speech,
+      recognition: voice.recognition,
     };
   } catch (error) {
     await database.closeAsync();

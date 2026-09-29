@@ -5,10 +5,16 @@ import type { LearningSummary, MistakeEntry, TaskStatus, VocabularyEntry } from 
 import type { WordMastery } from '../domain/mastery';
 import type { AttemptStatus, DailyPlan, Exercise, GeneratedExercise, ReviewAttempt, ReviewTarget, TargetType } from '../domain/practice';
 import type { ModelSettings } from '../domain/settings';
+import type { VoiceSettings } from '../domain/voice';
 
 export interface SettingsRepository {
   load(): Promise<ModelSettings>;
   save(settings: ModelSettings): Promise<void>;
+}
+
+export interface VoiceSettingsRepository {
+  load(): Promise<VoiceSettings>;
+  save(settings: VoiceSettings): Promise<void>;
 }
 
 export interface CredentialStore {

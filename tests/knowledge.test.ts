@@ -20,7 +20,7 @@ test('v1 databases upgrade to v2 without losing rows', async () => {
   db.sqlite.exec("INSERT INTO word_mastery (profile_id, word_id, level, review_count, due_at) VALUES ('p1', 'w1', 2, 1, NULL)");
   await migrate(db);
   assert.equal(db.sqlite.prepare('PRAGMA user_version').get()?.user_version, schemaVersion);
-  assert.equal(schemaVersion, 2);
+  assert.ok(schemaVersion >= 2);
   assert.deepEqual({ ...db.sqlite.prepare('SELECT level, review_count, updated_at FROM word_mastery').get() }, { level: 2, review_count: 1, updated_at: null });
   db.sqlite.exec("INSERT INTO daily_plans VALUES ('d1', 'p1', '2026-09-21', 'Asia/Shanghai', 1, 'now')");
   assert.throws(() => db.sqlite.exec("INSERT INTO daily_plans VALUES ('d2', 'p1', '2026-09-21', 'Asia/Shanghai', 1, 'now')"), /UNIQUE/);

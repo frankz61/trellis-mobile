@@ -1,5 +1,6 @@
 import { validateSettings, type ModelSettings } from '../domain/settings';
 import type { CredentialStore, SettingsRepository } from '../repositories/contracts';
+import { commitWithSecret } from './secrets';
 
 export class SettingsService {
   constructor(
@@ -26,23 +27,18 @@ export class SettingsService {
     if (!key && (!previous.credentialRef || !(await this.credentials.get(previous.credentialRef)))) {
       throw new Error('请填写 API Key。');
     }
-
-    // Write a new secret first, then atomically switch the SQLite reference.
-    // If the process dies between stores, the previous configuration still works.
-    const credentialRef = key ? `trellis.model.${this.createId()}` : previous.credentialRef;
-    const next = { ...validated, credentialRef };
-    if (key && credentialRef) await this.credentials.set(credentialRef, key);
-    try {
-      await this.repository.save(next);
-    } catch (error) {
-      if (key && credentialRef) await this.credentials.remove(credentialRef).catch(() => undefined);
-      throw error;
-    }
-    if (key && previous.credentialRef) {
-      // Best-effort cleanup after the committed reference changes.
-      await this.credentials.remove(previous.credentialRef).catch(() => undefined);
-    }
-    return next;
+    return commitWithSecret({
+      credentials: this.credentials,
+      previousRef: previous.credentialRef,
+      keptRef: previous.credentialRef,
+      key,
+      createRef: () => `trellis.model.${this.createId()}`,
+      commit: async (credentialRef) => {
+        const next = { ...validated, credentialRef };
+        await this.repository.save(next);
+        return next;
+      },
+    });
   }
 
   async clearApiKey(): Promise<void> {

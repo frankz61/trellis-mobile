@@ -38,7 +38,7 @@ async function collect(iterable: AsyncIterable<string>): Promise<string[]> {
   return out;
 }
 
-const config = { baseUrl: 'https://example.com/v1', model: 'm', apiKey: 'k' };
+const config = { baseUrl: 'https://example.com/v1', model: 'm', apiKey: 'k', temperature: null };
 
 test('streams deltas from chat completions and stops at [DONE]', async () => {
   const calls: { url: string; init: Parameters<FetchLike>[1] }[] = [];
@@ -55,6 +55,10 @@ test('streams deltas from chat completions and stops at [DONE]', async () => {
   assert.equal(calls[0]?.url, 'https://example.com/v1/chat/completions');
   assert.equal(calls[0]?.init.headers.Authorization, 'Bearer k');
   assert.deepEqual(JSON.parse(calls[0]!.init.body), { model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: true });
+
+  // A configured temperature is sent; null leaves the field out entirely (asserted above).
+  await collect(createOpenAiCompatibleGateway({ ...config, temperature: 0.3 }, fetchImpl).streamReply([], new AbortController().signal));
+  assert.equal(JSON.parse(calls[1]!.init.body).temperature, 0.3);
 });
 
 test('classifies auth, http and protocol failures', async () => {

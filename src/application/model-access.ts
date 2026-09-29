@@ -26,6 +26,6 @@ export class ModelAccess {
     const settings = await this.settings.load();
     const apiKey = settings.credentialRef ? await this.credentials.get(settings.credentialRef) : null;
     if (!settings.baseUrl || !settings.model || !apiKey) return null;
-    return { baseUrl: settings.baseUrl, model: settings.model, apiKey };
+    return { baseUrl: settings.baseUrl, model: settings.model, apiKey, temperature: settings.temperature };
   }
 }

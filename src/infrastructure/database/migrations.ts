@@ -145,6 +145,26 @@ export const migrations = [
       ALTER TABLE grammar_mastery ADD COLUMN updated_at TEXT;
     `,
   },
+  {
+    // Online speech services and model temperature. Keys stay in secure storage; only references live here.
+    version: 3,
+    sql: `
+      ALTER TABLE settings ADD COLUMN temperature REAL CHECK (temperature IS NULL OR temperature BETWEEN 0 AND 2);
+      ALTER TABLE settings ADD COLUMN recognition_engine TEXT NOT NULL DEFAULT 'system'
+        CHECK (recognition_engine IN ('system', 'online'));
+      ALTER TABLE settings ADD COLUMN stt_base_url TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN stt_model TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN stt_credential_ref TEXT;
+      ALTER TABLE settings ADD COLUMN synthesis_engine TEXT NOT NULL DEFAULT 'system'
+        CHECK (synthesis_engine IN ('system', 'online'));
+      ALTER TABLE settings ADD COLUMN tts_base_url TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN tts_model TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN tts_voice TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN tts_format TEXT NOT NULL DEFAULT 'mp3'
+        CHECK (tts_format IN ('mp3', 'aac', 'opus', 'wav', 'flac'));
+      ALTER TABLE settings ADD COLUMN tts_credential_ref TEXT;
+    `,
+  },
 ] as const;
 
 export const schemaVersion = migrations[migrations.length - 1].version;

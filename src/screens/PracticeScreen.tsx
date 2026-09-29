@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppServices } from '../app/bootstrap';
 import { Button, Card, colors, Notice, styles } from '../components/ui';
+import type { RecognitionCapability } from '../contracts/speech';
 import { maxUserMessageLength, type ConversationMessage } from '../domain/conversation';
 
 const statusLabel: Partial<Record<ConversationMessage['status'], string>> = {
@@ -31,19 +32,21 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
   const [extraction, setExtraction] = useState('');
   const [rate, setRate] = useState(0.85);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
-  const [listening, setListening] = useState(false);
+  const [listening, setListening] = useState<RecognitionCapability['mode'] | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
   const [voiceNote, setVoiceNote] = useState('');
   const controller = useRef<AbortController | null>(null);
   const recognizing = useRef<AbortController | null>(null);
+  const finishing = useRef<AbortController | null>(null);
   const extracting = useRef<AbortController | null>(null);
   const list = useRef<ScrollView>(null);
 
   useEffect(() => {
     let active = true;
-    Promise.all([services.conversation.restore(), services.settings.load()]).then(([history, config]) => {
+    Promise.all([services.conversation.restore(), services.settings.load(), services.voiceSettings.load()]).then(([history, config, voice]) => {
       if (!active) return;
       setMessages(history);
-      setRate(config.settings.speechRate);
+      setRate(voice.settings.synthesis.speechRate);
       setConfigured(config.hasApiKey && Boolean(config.settings.baseUrl && config.settings.model));
     }).catch(() => { if (active) setError('无法读取对话记录，请重新打开应用。'); });
     return () => {
@@ -104,28 +107,37 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
     }
   }
 
-  // One utterance per tap: the coach is silenced first so its voice is not transcribed as the learner's.
+  // One utterance per recording: the coach is silenced first so its voice is not transcribed as the
+  // learner's. Tapping again while listening means "done talking" and keeps what was said.
   async function listen() {
-    if (listening) { recognizing.current?.abort(); return; }
+    if (listening) { finishing.current?.abort(); return; }
     setVoiceNote('');
     await services.speech.stop().catch(() => undefined);
     setSpeakingId(null);
     const capability = await services.recognition.capability('en-US');
     if (!capability.available) { setVoiceNote(capability.reason ?? '语音识别不可用。'); return; }
     const request = new AbortController();
+    const done = new AbortController();
     recognizing.current = request;
-    setListening(true);
+    finishing.current = done;
+    setListening(capability.mode);
     const before = draft.trim();
     const join = (text: string) => (before ? `${before} ${text}` : text);
     try {
-      const text = await services.recognition.recognize('en-US', request.signal, (partial) => setDraft(join(partial)));
+      const text = await services.recognition.recognize('en-US', request.signal, {
+        finish: done.signal,
+        onPartial: (partial) => setDraft(join(partial)),
+        onTranscribing: () => { setListening(null); setTranscribing(true); },
+      });
       setDraft(join(text));
-      if (!capability.onDevice) setVoiceNote('识别由系统语音服务完成，可能经过网络。');
+      if (capability.privacyNote) setVoiceNote(capability.privacyNote);
     } catch (cause) {
       if (!(cause instanceof Error && cause.name === 'AbortError')) setVoiceNote(cause instanceof Error ? cause.message : '语音识别失败。');
     } finally {
       if (recognizing.current === request) recognizing.current = null;
-      setListening(false);
+      if (finishing.current === done) finishing.current = null;
+      setListening(null);
+      setTranscribing(false);
     }
   }
 
@@ -175,14 +187,16 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
       </Card> : null}
     </ScrollView>
     <View style={local.composer}>
-      <Button label={listening ? '停止' : '说'} secondary={!listening} disabled={!configured || sending || messages === null}
+      <Button label={listening ? '停止' : transcribing ? '识别中' : '说'} secondary={!listening}
+        disabled={!configured || sending || transcribing || messages === null}
         onPress={() => void listen()} />
       <TextInput accessibilityLabel="消息输入" style={[styles.input, local.input]} value={draft} onChangeText={setDraft}
-        placeholder={listening ? '正在听你说英语…' : '用英语说点什么…'} multiline maxLength={maxUserMessageLength}
-        editable={configured && !sending && !listening && messages !== null} />
+        placeholder={listening === 'manual' ? '正在录音，说完点“停止”…' : listening ? '正在听你说英语…'
+          : transcribing ? '正在识别你的录音…' : '用英语说点什么…'} multiline maxLength={maxUserMessageLength}
+        editable={configured && !sending && !listening && !transcribing && messages !== null} />
       {sending
         ? <Button label="停止" secondary onPress={() => controller.current?.abort()} />
-        : <Button label="发送" onPress={() => void send()} disabled={!configured || messages === null || listening || !draft.trim()} />}
+        : <Button label="发送" onPress={() => void send()} disabled={!configured || messages === null || Boolean(listening) || transcribing || !draft.trim()} />}
     </View>
   </View>;
 }

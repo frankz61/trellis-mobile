@@ -53,7 +53,10 @@ export function createOpenAiCompatibleGateway(config: GatewayConfig, fetchImpl: 
           Accept: stream ? 'text/event-stream' : 'application/json',
           Authorization: `Bearer ${config.apiKey}`,
         },
-        body: JSON.stringify({ model: config.model, messages, stream }),
+        body: JSON.stringify({
+          model: config.model, messages, stream,
+          ...(config.temperature === null ? {} : { temperature: config.temperature }),
+        }),
         signal,
       });
     } catch (error) {

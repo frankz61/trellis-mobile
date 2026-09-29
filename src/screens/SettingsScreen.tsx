@@ -1,45 +1,58 @@
-import { useEffect, useState } from 'react';
-import { Alert, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Text, TextInput } from 'react-native';
 import type { AppServices } from '../app/bootstrap';
+import type { VoiceSettingsView } from '../application/voice-settings-service';
 import { defaultSettings, type ModelSettings } from '../domain/settings';
 import { Button, Card, Heading, Notice, Page, styles } from '../components/ui';
+import { RecognitionCard, SynthesisCard } from './VoiceSettingsCards';
 
 export function SettingsScreen({ services }: { services: AppServices }) {
   const [settings, setSettings] = useState<ModelSettings>(defaultSettings);
+  const [temperature, setTemperature] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [voice, setVoice] = useState<VoiceSettingsView | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState(false);
   const [backupNote, setBackupNote] = useState('');
   const [backupError, setBackupError] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
 
+  // Voice key status depends on the model key (sharing), so it is reloaded after either changes.
+  const reloadVoice = useCallback(() => services.voiceSettings.load().then(setVoice).catch(() => {
+    setMessage('读取语音设置失败，请重新打开应用。'); setError(true);
+  }), [services]);
+
   useEffect(() => {
     let active = true;
     services.settings.load().then((loaded) => {
       if (!active) return;
       setSettings(loaded.settings);
+      setTemperature(loaded.settings.temperature === null ? '' : String(loaded.settings.temperature));
       setHasApiKey(loaded.hasApiKey);
       setReady(true);
     }).catch(() => {
       if (active) { setMessage('读取设置失败，请重新打开应用。'); setError(true); }
     });
-    return () => { active = false; void services.speech.stop().catch(() => undefined); };
-  }, [services]);
+    void reloadVoice();
+    return () => { active = false; };
+  }, [services, reloadVoice]);
 
   async function save() {
     setBusy(true);
     setMessage('');
     try {
-      const saved = await services.settings.save(settings, apiKey);
+      const saved = await services.settings.save(
+        { ...settings, temperature: temperature.trim() ? Number(temperature.trim()) : null }, apiKey,
+      );
       setSettings(saved);
       setApiKey('');
       setHasApiKey(true);
       setError(false);
       setMessage('配置已保存到本机。尚未测试模型连接。');
+      void reloadVoice();
     } catch (cause) {
       setError(true);
       setMessage(cause instanceof Error ? cause.message : '保存失败，请重试。');
@@ -55,20 +68,11 @@ export function SettingsScreen({ services }: { services: AppServices }) {
       setSettings((current) => ({ ...current, credentialRef: null }));
       setError(false);
       setMessage('已删除本机保存的 API Key。');
+      void reloadVoice();
     } catch {
       setError(true);
       setMessage('删除失败，请重试。');
     } finally { setBusy(false); }
-  }
-
-  async function previewSpeech() {
-    setSpeaking(true);
-    try {
-      await services.speech.speak('A little practice every day makes a difference.', settings.speechRate);
-    } catch (cause) {
-      setError(true);
-      setMessage(cause instanceof Error ? cause.message : '朗读失败。');
-    } finally { setSpeaking(false); }
   }
 
   async function exportBackup() {
@@ -111,11 +115,15 @@ export function SettingsScreen({ services }: { services: AppServices }) {
       <TextInput accessibilityLabel="模型名称" style={styles.input} value={settings.model}
         placeholder="服务商提供的模型 ID" autoCapitalize="none" autoCorrect={false}
         editable={ready && !busy} onChangeText={(model) => setSettings({ ...settings, model })} />
+      <Text style={styles.label}>温度（可选）</Text>
+      <TextInput accessibilityLabel="模型温度" style={styles.input} value={temperature}
+        placeholder="留空使用服务默认值，例如 0.3" keyboardType="decimal-pad"
+        editable={ready && !busy} onChangeText={setTemperature} />
       <Text style={styles.label}>API Key · {hasApiKey ? '已保存' : '未配置'}</Text>
       <TextInput accessibilityLabel="API Key" style={styles.input} value={apiKey}
         placeholder={hasApiKey ? '留空保留现有 Key' : '填写你自己的 API Key'} secureTextEntry autoCapitalize="none" autoCorrect={false}
         editable={ready && !busy} onChangeText={setApiKey} />
-      <Notice text="Key 保存在系统安全存储中。未来对话会将所需文本发给你配置的服务商。" />
+      <Notice text="Key 保存在系统安全存储中。对话、整理生词和出题时，会把所需文本发给你配置的服务商。" />
       <Button label={busy ? '正在保存…' : '保存配置'} onPress={() => void save()} disabled={!ready || busy} />
       {hasApiKey ? <Button label="删除已保存的 Key" secondary disabled={busy} onPress={() => Alert.alert(
         '删除 API Key', '学习记录会保留，下次连接模型需要重新填写 Key。',
@@ -123,22 +131,12 @@ export function SettingsScreen({ services }: { services: AppServices }) {
       )} /> : null}
     </Card>
     {message ? <Notice text={message} error={error} /> : null}
-    <Card>
-      <Text style={styles.sectionTitle}>英语朗读</Text>
-      <Text style={styles.body}>使用设备上的英语声音；是否联网由语音引擎决定。</Text>
-      <View style={styles.row}>
-        {[0.7, 0.85, 1].map((rate) => <View key={rate} style={{ flex: 1 }}>
-          <Button label={`${rate}×`} secondary={settings.speechRate !== rate} selected={settings.speechRate === rate}
-            disabled={!ready || busy} onPress={() => setSettings({ ...settings, speechRate: rate })} />
-        </View>)}
-      </View>
-      <Button label={speaking ? '停止朗读' : '试听一句英语'} secondary disabled={!ready}
-        onPress={() => {
-          if (speaking) void services.speech.stop().catch(() => { setError(true); setMessage('停止朗读失败。'); });
-          else void previewSpeech();
-        }} />
-      <Notice text="语速随上方模型配置一起保存，也用于“陪练”里朗读教练的回复。语音输入使用系统语音识别，在“陪练”页按“说”开始。" />
-    </Card>
+    {voice ? <>
+      <RecognitionCard services={services} initial={voice.settings.recognition} keySource={voice.keys.recognition}
+        modelBaseUrl={settings.baseUrl} onSaved={() => void reloadVoice()} />
+      <SynthesisCard services={services} initial={voice.settings.synthesis} keySource={voice.keys.synthesis}
+        modelBaseUrl={settings.baseUrl} onSaved={() => void reloadVoice()} />
+    </> : null}
     <Card>
       <Text style={styles.sectionTitle}>数据备份</Text>
       <Text style={styles.body}>把对话、生词、错因和练习记录导出为一个 JSON 文件，保存到你选择的文件夹；恢复会用备份替换本机现有学习数据。</Text>

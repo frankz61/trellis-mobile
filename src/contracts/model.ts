@@ -16,6 +16,8 @@ export interface GatewayConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
+  // Omitted from the request when null, so the provider's default applies.
+  temperature: number | null;
 }
 
 export interface ModelGateway {

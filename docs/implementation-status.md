@@ -7,7 +7,7 @@
 - Android application ID 为 com.frankz61.trellis。
 - 本地单用户，SQLite 同时存业务数据和图谱关系。
 - 用户自行提供远程模型 Key；本次只保存配置，不执行模型请求。
-- 系统 TTS 使用 expo-speech；SpeechRecognizer 桥接后续实现。
+- 系统 TTS 使用 expo-speech，系统识别使用 expo-speech-recognition；在线 STT/TTS（OpenAI 兼容音频接口）可在“我的”页逐项切换，默认仍为系统引擎（2026-09-29）。
 - 不嵌入 Python、FastAPI 或 LangGraph，不创建远程业务服务器。
 
 ## 已实现
@@ -15,12 +15,14 @@
 - 四入口页面、主题、启动状态、数据库失败重试与 Android 返回键回到首页。
 - SQLite v1 迁移、基础图谱与学习记录表、稳定的本机 profile。
 - 积累与统计读取真实数据库；无样例学习数据。
-- 模型地址/模型名/语速保存，HTTPS 地址校验，系统安全存储 Key。
+- 模型地址/模型名/温度（可选，留空不发送）保存，HTTPS 地址校验，系统安全存储 Key。
 - 密钥替换先写新条目再切换数据库引用，数据库失败时回滚新密钥。
 - 系统英语声音检查、试听、停止；切后台时停止朗读。
 - 模型协议：OpenAI 兼容 `POST {baseUrl}/chat/completions`，`stream: true`，通过 `expo/fetch` 读取 SSE；解析器跨 chunk/跨多字节字符安全；兼容不流式的 JSON 应答；错误分为网络/鉴权/HTTP/协议并给出中文提示。
 - 文字对话（2026-09-21）：用户消息先写入 `messages` 再发请求；回复以 `pending` 插入、流式期间每 500 ms 回写、结束标记 `complete`，停止标记 `interrupted` 并保留部分内容，出错标记 `failed`；启动时把遗留 `pending` 标为 `interrupted`；上下文为版本化提示词 `coach-v1` + 最近 20 条有效消息。
-- STT 接口定义，未创建伪实现。
+- 语音识别：系统识别（边说边出字，点“停止”保留已识别内容）或在线识别（expo-audio 录 16 kHz 单声道 AAC，最长 60 秒，点“停止”后上传 `POST {baseUrl}/audio/transcriptions`，上传上限 10 MB，录音文件用后删除）。
+- 英语朗读：系统声音或在线朗读（`POST {baseUrl}/audio/speech`，格式 mp3/aac/opus/wav/flac，按句分段、每段最多 2000 字符，逐段下载播放；语速由播放器带音高校正实现）。
+- 语音设置（2026-09-29，迁移 v3）：识别与朗读各自保存引擎、地址、模型（朗读另有声音、格式、语速）。Key 可单独保存（`trellis.stt.*` / `trellis.tts.*`），留空时仅在与 AI 模型同一主机（scheme+host+port）时共用模型 Key；更换主机即丢弃原 Key，不会把 Key 发往未为其填写的主机。引擎按每次调用时的已保存设置选择，切换无需重启；在线配置不完整时如实提示，不回退、不伪造结果。
 - 类型检查、迁移/数据约束/密钥失败路径/SSE 解析/模型网关/对话状态测试，以及 GitHub Actions 检查。
 
 ## 下一阶段
@@ -28,7 +30,7 @@
 1. 迁移并版本化知识抽取提示词，增加模型 JSON 运行时校验与抽取任务执行（任务表已就位）。
 2. 将抽取结果按来源消息幂等写入图谱，真正打通薄弱点上下文。
 3. 通过新增迁移补充 daily_plans、exercises、review_attempts，再做每日练习与掌握度回写。
-4. 接入 Android SpeechRecognizer，处理权限、能力检测和英语资源缺失。
+4. ~~接入 Android SpeechRecognizer~~ 已接入；在线识别/朗读已接入。后续可加“测试连接”按钮与识别结果置信度提示。
 5. 会话管理：新建/切换会话、上下文长度控制（当前只恢复最近一个会话，固定最近 20 条）。
 6. 实现一致性导出恢复，再准备面向真实用户的安装包。
 
@@ -50,7 +52,8 @@
 - 数据库损坏或未来版本提示；需要完善数据库错误分类。
 - 当前 expo-speech 适配器不暴露每个声音的联网属性，UI 明确提示由引擎决定。
 - 断进程时可能留下未引用的安全存储条目，后续增加可追踪的清理策略。
-- 语速目前和模型配置一起保存，后续可拆为独立偏好。
+- ~~语速目前和模型配置一起保存~~ 2026-09-29 起随“英语朗读”设置保存。
+- 在线识别的真机录音→转写全链路待用户实际说话验证；在线朗读已在真机验证（见下）。
 
 ## 本次验证
 
@@ -83,3 +86,15 @@
 - Android Emulator 36.2.12 与 android-36.1 google_apis_playstore x86_64 镜像在本机（WHPX）不兼容：guest 的 `mapper.ranchu.so` 断言 `hasReadColorBufferDma` 反复崩溃，导致 surfaceflinger/system_server 循环重启；升级到 37.1.11 后宿主不再段错误但 guest 断言仍在。模拟器测试需要更换系统镜像或换加速器，当前以真机为准。
 - ColorOS 下 adb 需注意：`adb install` 报 `Failure [-99]` 时改为先 `adb push` 再 `pm install`；密码输入框获焦时截屏为黑屏；`uiautomator dump` 可能被系统杀掉；中文输入法会改写 `adb shell input text` 的内容。
 - debug 包的 expo-dev-menu 在无输入法时把按键 `R`/`P`/`I` 当作快捷键，自动化输入前需关闭 dev-menu 的 key commands。
+
+## 真机验证（2026-09-29，release 包）
+
+设备同上，通过无线调试（`adb connect <IP>:<port>`，本机 mDNS 发现失败时直接连接）安装 arm64 release 包（约 31 MB，JS 内置，不依赖 Metro），覆盖安装保留全部数据。
+
+- 冷启动约 0.2–0.5 s；v2→v3 迁移在真机上完成，模型配置、学习记录与语速保留。
+- 修复：Android 16 强制 edge-to-edge 后 `adjustResize` 失效，键盘遮挡“陪练”输入栏；`KeyboardAvoidingView` 在 Android 也使用 `padding`。
+- 修复：进入“陪练”未定位到最新消息；改为在 `onContentSizeChange`/`onLayout` 后延一帧 `scrollToEnd`（Fabric 下回调内直接滚动无效）。
+- 系统识别报“系统语音识别服务不可用”的原因是 Google 语音服务（`com.google.android.tts`）自身没有麦克风权限（日志 `MICROPHONE_UNAVAILABLE`，回传 `ERROR_INSUFFICIENT_PERMISSIONS`）；用户在系统设置中授权后识别正常。
+- 在线朗读：用户自有 OpenAI 兼容端点（与模型同一主机、共用模型 Key），`deepgram/aura-asteria-en` + `asteria` + mp3，试听请求成功，ExoPlayer 解码 `audio/mpeg` 并完整播放约 5 s。
+- 修复：保存一张语音设置卡片会重置另一张卡片未保存的修改。
+- expo-audio 插件关闭后台播放（`enableBackgroundPlayback: false`），不申请前台服务权限；切后台时朗读停止。

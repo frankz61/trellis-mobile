@@ -21,12 +21,13 @@ function abortError(): Error {
 export const systemRecognition: SpeechRecognitionGateway = {
   async capability(): Promise<RecognitionCapability> {
     if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
-      return { available: false, onDevice: false, reason: '这台设备没有可用的语音识别服务。' };
+      return { available: false, mode: 'utterance', reason: '这台设备没有可用的语音识别服务。' };
     }
-    return { available: true, onDevice: ExpoSpeechRecognitionModule.supportsOnDeviceRecognition() };
+    const onDevice = ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+    return { available: true, mode: 'utterance', privacyNote: onDevice ? undefined : '识别由系统语音服务完成，可能经过网络。' };
   },
 
-  async recognize(language, signal, onPartial) {
+  async recognize(language, signal, options) {
     if (signal.aborted) throw abortError();
     const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!permission.granted) throw new Error(errorMessages['not-allowed']);
@@ -39,7 +40,7 @@ export const systemRecognition: SpeechRecognitionGateway = {
           const text = event.results[0]?.transcript ?? '';
           if (!text) return;
           transcript = text;
-          if (event.isFinal) finish(() => resolve(text)); else onPartial?.(text);
+          if (event.isFinal) finish(() => resolve(text)); else options?.onPartial?.(text);
         }),
         ExpoSpeechRecognitionModule.addListener('error', (event) => {
           if (event.error === 'aborted') return finish(() => reject(abortError()));
@@ -52,11 +53,15 @@ export const systemRecognition: SpeechRecognitionGateway = {
         if (settled) return;
         settled = true;
         signal.removeEventListener('abort', onAbort);
+        options?.finish?.removeEventListener('abort', onFinish);
         for (const subscription of subscriptions) subscription.remove();
         settle();
       };
       const onAbort = () => { ExpoSpeechRecognitionModule.abort(); finish(() => reject(abortError())); };
+      // Stopping early still ends with a final result, or `end` with whatever was heard so far.
+      const onFinish = () => ExpoSpeechRecognitionModule.stop();
       signal.addEventListener('abort', onAbort, { once: true });
+      options?.finish?.addEventListener('abort', onFinish, { once: true });
 
       ExpoSpeechRecognitionModule.start({
         lang: language,

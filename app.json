@@ -39,6 +39,13 @@
             "com.google.android.tts"
           ]
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Trellis 需要使用麦克风录下你的英语发言，用于语音识别。",
+          "enableBackgroundPlayback": false
+        }
       ]
     ]
   }
