@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Trellis",
+    "slug": "trellis-mobile",
+    "version": "0.1.0",
+    "scheme": "trellis",
+    "platforms": [
+      "android",
+      "ios"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.frankz61.trellis"
+    },
+    "android": {
+      "package": "com.frankz61.trellis",
+      "versionCode": 1,
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "backgroundColor": "#EAF1E7",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Trellis 需要使用麦克风来识别你的英语发言。",
+          "speechRecognitionPermission": "Trellis 需要使用语音识别来把你的英语发言转成文字。",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts"
+          ]
+        }
+      ]
+    ]
+  }
+}

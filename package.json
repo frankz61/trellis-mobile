@@ -1,0 +1,57 @@
+{
+  "name": "trellis-mobile",
+  "version": "0.1.0",
+  "description": "A local-first AI English learning app for Android with SQLite, an on-device knowledge graph, and remote LLMs.",
+  "author": {
+    "name": "frankz61",
+    "email": "15981955337@163.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frankz61/trellis-mobile.git"
+  },
+  "homepage": "https://github.com/frankz61/trellis-mobile#readme",
+  "bugs": {
+    "url": "https://github.com/frankz61/trellis-mobile/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "expo": "~57.0.23",
+    "expo-crypto": "~57.0.3",
+    "expo-dev-client": "~57.0.19",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-secure-store": "~57.0.4",
+    "expo-speech": "~57.0.3",
+    "expo-speech-recognition": "^57.1.0",
+    "expo-sqlite": "~57.0.3",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.5",
+    "@types/react": "~19.2.2",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "start:android": "expo start --dev-client --android",
+    "prebuild:android": "expo prebuild --platform android",
+    "export:android": "expo export --platform android",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test",
+    "doctor": "npx expo-doctor"
+  },
+  "private": true
+}
