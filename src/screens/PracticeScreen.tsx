@@ -56,7 +56,10 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
     };
   }, [services]);
 
-  useEffect(() => { list.current?.scrollToEnd({ animated: true }); }, [messages, extraction]);
+  // Scroll after layout, not on state change: a long history is not measured yet when the effect runs,
+  // and the keyboard shrinks the list without changing its content. The extra frame lets the native
+  // side commit the new content size first; scrolling inside the callback itself is a no-op on Fabric.
+  const scrollToLatest = () => { requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); };
 
   // Knowledge extraction runs after the reply, as a persisted task, so a crash or an
   // abort here only delays it: the task is retried on the next launch.
@@ -151,7 +154,8 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
 
   const empty = messages !== null && messages.length === 0;
   return <View style={local.root}>
-    <ScrollView ref={list} style={local.list} contentContainerStyle={local.listContent} keyboardShouldPersistTaps="handled">
+    <ScrollView ref={list} style={local.list} contentContainerStyle={local.listContent} keyboardShouldPersistTaps="handled"
+      onContentSizeChange={scrollToLatest} onLayout={scrollToLatest}>
       {empty ? <>
         <Text style={local.title}>开口，从一个想法开始。</Text>
         <Card>

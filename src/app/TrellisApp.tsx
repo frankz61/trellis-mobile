@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Button, colors, Notice } from '../components/ui';
 import { TodayScreen } from '../screens/TodayScreen';
@@ -63,7 +63,8 @@ function Application() {
       : <><ActivityIndicator color={colors.green} /><Notice text="正在打开你的学习空间…" /></>}
   </View>;
 
-  return <KeyboardAvoidingView style={local.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  // Edge-to-edge (Android 15+) disables adjustResize, so Android also needs explicit padding.
+  return <KeyboardAvoidingView style={local.root} behavior="padding">
     <View style={local.header}>
       <View style={local.logo}><Ionicons name="leaf" size={20} color={colors.green} /><Text style={local.brand}>Trellis</Text></View>
       <Text style={local.badge}>本地学习空间</Text>
