@@ -26,7 +26,6 @@ export interface DailyPractice {
 }
 
 export const noTargetsMessage = '还没有需要复习的内容。先去“陪练”聊几句，记录下生词和错因。';
-export const learnerLevel = 'B1-B2';
 
 export class PracticeService {
   constructor(private readonly deps: PracticeDependencies) {}
@@ -54,7 +53,7 @@ export class PracticeService {
     const gateway = await this.deps.access.gateway();
     const generated: (GeneratedExercise & { id: string; target: ReviewTarget })[] = [];
     for (const target of targets) {
-      const raw = await gateway.complete([{ role: 'user', content: exercisePrompt.build(target.label, target.type, learnerLevel) }], withTimeout(signal, structuredCallTimeoutMs));
+      const raw = await gateway.complete([{ role: 'user', content: exercisePrompt.build(target) }], withTimeout(signal, structuredCallTimeoutMs));
       const exercise = parseExercise(parseModelJson(raw));
       if (exercise) generated.push({ ...exercise, id: this.deps.createId(), target });
     }
@@ -89,7 +88,7 @@ export class PracticeService {
       verdict = { correct: true, feedback: '答对了，和参考答案一致。', judgedBy: 'local' };
     } else {
       const gateway = await this.deps.access.gateway();
-      const raw = await gateway.complete([{ role: 'user', content: evaluationPrompt.build(exercise.prompt, exercise.answer, text) }], withTimeout(signal, structuredCallTimeoutMs));
+      const raw = await gateway.complete([{ role: 'user', content: evaluationPrompt.build({ kind: exercise.kind, question: exercise.prompt, reference: exercise.answer, answer: text }) }], withTimeout(signal, structuredCallTimeoutMs));
       const evaluation = parseEvaluation(parseModelJson(raw));
       if (!evaluation) throw new Error('评价结果无法解析，稍后可以再试一次。');
       verdict = { ...evaluation, judgedBy: 'model' };

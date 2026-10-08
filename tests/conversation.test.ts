@@ -85,7 +85,9 @@ test('recorded weak points reach the system prompt', async () => {
   const f = await fixture({ weak: true });
   await f.service.send('Hello', new AbortController().signal, () => {});
   const system = f.contexts()[0]?.[0] ?? '';
-  assert.match(system, /struggled with: 时态/);
+  // Grammar points reach the English prompt by their English name, not the Chinese UI label.
+  assert.match(system, /weak points: verb tense\./);
+  assert.doesNotMatch(system, /时态/);
   assert.match(system, /still learning: exhausted/);
   assert.equal(buildContext([])[0]?.content, coachPrompt.text, 'no profile lines without weak points');
 });

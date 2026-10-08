@@ -1,6 +1,6 @@
 import { ModelRequestError, type ModelMessage } from '../contracts/model';
 import { maxUserMessageLength, sessionTitle, type ConversationMessage, type MessageStatus } from '../domain/conversation';
-import { grammarLabel } from '../domain/knowledge';
+import { grammarName } from '../domain/knowledge';
 import { coachPrompt, type LearnerProfile } from '../prompts/coach';
 import type { ConversationRepository, KnowledgeRepository } from '../repositories/contracts';
 import type { ModelAccess } from './model-access';
@@ -50,7 +50,7 @@ export class ConversationService {
   private async learnerProfile(): Promise<LearnerProfile> {
     if (!this.deps.knowledge) return { weakGrammar: [], weakWords: [] };
     const weak = await this.deps.knowledge.weakPoints(this.deps.profileId);
-    return { weakGrammar: weak.grammar.map((g) => grammarLabel(g.name)), weakWords: weak.words.map((w) => w.lemma) };
+    return { weakGrammar: weak.grammar.map((g) => grammarName(g.name)), weakWords: weak.words.map((w) => w.lemma) };
   }
 
   async send(

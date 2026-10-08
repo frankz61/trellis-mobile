@@ -44,9 +44,13 @@ export interface ReviewAttempt {
 export interface ReviewTarget {
   type: TargetType;
   id: string;
+  // Shown in the UI (Chinese for grammar points).
   label: string;
   // Higher comes first when the daily set is chosen.
   weight: number;
+  // What the exercise prompt is told: the English name, a word's meaning, and the learner's own
+  // recent mistakes for a grammar point, so exercises target what actually went wrong.
+  context: { name: string; meaning?: string; mistakes: { original: string; corrected: string }[] };
 }
 
 export interface GeneratedExercise {

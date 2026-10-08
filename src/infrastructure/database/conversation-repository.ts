@@ -32,6 +32,16 @@ export class SqliteConversationRepository implements ConversationRepository {
     );
   }
 
+  replyBefore(id: string) {
+    return this.database.getFirstAsync<ConversationMessage>(
+      `SELECT m.id, m.session_id AS sessionId, m.role, m.content, m.status, m.created_at AS createdAt
+       FROM messages m JOIN messages current ON current.id = ? AND m.session_id = current.session_id
+       WHERE m.role = 'assistant' AND m.content <> '' AND m.status IN ('complete', 'interrupted')
+         AND (m.created_at, m.rowid) < (current.created_at, current.rowid)
+       ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1`, id,
+    );
+  }
+
   async appendMessage(message: ConversationMessage) {
     await this.database.runAsync(
       'INSERT INTO messages (id, session_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',

@@ -1,4 +1,4 @@
-import { grammarLabel, mistakeKey, type Extraction } from '../../domain/knowledge';
+import { grammarLabel, grammarName, mistakeKey, type Extraction } from '../../domain/knowledge';
 import { initialWordMastery, reviewLevelThreshold } from '../../domain/mastery';
 import type { ReviewTarget } from '../../domain/practice';
 import type { KnowledgeRepository, WeakPoints } from '../../repositories/contracts';
@@ -80,15 +80,33 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
          JOIN grammar_points g ON g.id = gm.grammar_id
          WHERE gm.profile_id = ? AND gm.weakness_count > 0 ORDER BY gm.weakness_count DESC, g.name LIMIT ?`, profileId, limits.grammar,
       ),
-      this.database.getAllAsync<{ id: string; lemma: string; level: number }>(
-        `SELECT w.id, w.lemma, wm.level FROM word_mastery wm JOIN words w ON w.id = wm.word_id
+      this.database.getAllAsync<{ id: string; lemma: string; meaning: string; level: number }>(
+        `SELECT w.id, w.lemma, w.meaning, wm.level FROM word_mastery wm JOIN words w ON w.id = wm.word_id
          WHERE wm.profile_id = ? AND wm.level < ? AND (wm.due_at IS NULL OR wm.due_at <= ?)
          ORDER BY wm.level, wm.due_at, w.lemma LIMIT ?`, profileId, reviewLevelThreshold, now, limits.words,
       ),
     ]);
+    const examples = await Promise.all(grammar.map((g) => this.recentMistakes(profileId, g.id)));
     return [
-      ...grammar.map((g): ReviewTarget => ({ type: 'grammar', id: g.id, label: grammarLabel(g.name), weight: g.count })),
-      ...words.map((w): ReviewTarget => ({ type: 'word', id: w.id, label: w.lemma, weight: reviewLevelThreshold - w.level })),
+      ...grammar.map((g, i): ReviewTarget => ({
+        type: 'grammar', id: g.id, label: grammarLabel(g.name), weight: g.count,
+        context: { name: grammarName(g.name), mistakes: examples[i]! },
+      })),
+      ...words.map((w): ReviewTarget => ({
+        type: 'word', id: w.id, label: w.lemma, weight: reviewLevelThreshold - w.level,
+        context: { name: w.lemma, meaning: w.meaning, mistakes: [] },
+      })),
     ];
+  }
+
+  // The learner's latest mistakes for a grammar point, so exercises practise what actually went wrong.
+  private async recentMistakes(profileId: string, grammarId: string, limit = 2) {
+    const rows = await this.database.getAllAsync<{ original: string; corrected: string }>(
+      `SELECT mi.original, mi.corrected FROM mistakes mi
+       JOIN mistake_grammar_links l ON l.mistake_id = mi.id AND l.grammar_id = ?
+       JOIN messages msg ON msg.id = mi.message_id JOIN sessions s ON s.id = msg.session_id AND s.profile_id = ?
+       ORDER BY msg.created_at DESC, mi.rowid DESC LIMIT ?`, grammarId, profileId, limit,
+    );
+    return rows.map((row) => ({ original: row.original, corrected: row.corrected }));
   }
 }

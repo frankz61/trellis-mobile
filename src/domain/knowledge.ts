@@ -2,13 +2,15 @@ import { asString, isRecord } from './model-json';
 
 // Mistake categories double as the grammar points a learner can be weak at.
 export const mistakeTypes = [
-  'tense', 'article', 'subject_verb_agreement', 'preposition',
+  'tense', 'verb_form', 'subject_verb_agreement', 'noun_number', 'article', 'preposition',
   'word_choice', 'collocation', 'sentence_structure', 'spelling',
 ] as const;
 export type MistakeType = (typeof mistakeTypes)[number];
 
 export const grammarLabels: Record<MistakeType, string> = {
   tense: '时态',
+  verb_form: '动词形式',
+  noun_number: '单复数',
   article: '冠词',
   subject_verb_agreement: '主谓一致',
   preposition: '介词',
@@ -20,6 +22,24 @@ export const grammarLabels: Record<MistakeType, string> = {
 
 export function grammarLabel(name: string): string {
   return (grammarLabels as Record<string, string>)[name] ?? name;
+}
+
+// How grammar points are named inside English prompts; the Chinese labels are for the UI only.
+const grammarNames: Record<MistakeType, string> = {
+  tense: 'verb tense',
+  verb_form: 'verb forms',
+  noun_number: 'singular and plural nouns',
+  article: 'articles (a / an / the)',
+  subject_verb_agreement: 'subject-verb agreement',
+  preposition: 'prepositions',
+  word_choice: 'word choice',
+  collocation: 'collocations',
+  sentence_structure: 'sentence structure',
+  spelling: 'spelling',
+};
+
+export function grammarName(name: string): string {
+  return (grammarNames as Record<string, string>)[name] ?? name.replace(/_/g, ' ');
 }
 
 export interface ExtractedMistake {
