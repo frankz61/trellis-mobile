@@ -42,6 +42,8 @@ export interface ConversationRepository {
   message(id: string): Promise<ConversationMessage | null>;
   // The coach reply the given message was answering: the last non-empty assistant message before it.
   replyBefore(id: string): Promise<ConversationMessage | null>;
+  // The completed coach reply that answered the given message, if no other learner message came first.
+  replyAfter(id: string): Promise<ConversationMessage | null>;
   appendMessage(message: ConversationMessage): Promise<void>;
   updateMessage(id: string, content: string, status: MessageStatus): Promise<void>;
   // Replies left 'pending' by a killed process are never completed; surface them as interrupted.

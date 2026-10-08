@@ -10,7 +10,7 @@ export interface KnowledgeDependencies {
   profileId: string;
   tasks: TaskRepository;
   knowledge: KnowledgeRepository;
-  conversation: Pick<ConversationRepository, 'message' | 'replyBefore'>;
+  conversation: Pick<ConversationRepository, 'message' | 'replyBefore' | 'replyAfter'>;
   access: ModelAccess;
   createId: () => string;
   now?: () => string;
@@ -85,10 +85,14 @@ export class KnowledgeService {
     const message = await this.deps.conversation.message(messageId);
     // A deleted message leaves nothing to extract; the task is simply done.
     if (!message || !message.content.trim()) return null;
-    // The coach's question disambiguates short answers ("Yes, twice."); nothing is extracted from it.
-    const previousReply = (await this.deps.conversation.replyBefore(messageId))?.content;
+    // The coach's question disambiguates short answers ("Yes, twice."); the coach's answer holds the
+    // word the learner asked for ("How do you say ...?"). Only that word may be taken from it.
+    const [before, after] = await Promise.all([
+      this.deps.conversation.replyBefore(messageId), this.deps.conversation.replyAfter(messageId),
+    ]);
     const gateway = await this.deps.access.gateway();
-    const raw = await gateway.complete([{ role: 'user', content: extractionPrompt.build({ message: message.content, previousReply }) }], signal);
+    const prompt = extractionPrompt.build({ message: message.content, previousReply: before?.content, answer: after?.content });
+    const raw = await gateway.complete([{ role: 'user', content: prompt }], signal);
     const extraction = parseExtraction(parseModelJson(raw));
     if (!extraction) throw new ModelRequestError('抽取结果不是有效的 JSON。', 'protocol');
     const counts = await this.deps.knowledge.applyExtraction(this.deps.profileId, messageId, extraction, this.now());

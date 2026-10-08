@@ -6,7 +6,7 @@ import { grammarName, mistakeTypes } from '../src/domain/knowledge';
 import { SqliteConversationRepository } from '../src/infrastructure/database/conversation-repository';
 import { SqliteKnowledgeRepository } from '../src/infrastructure/database/knowledge-repository';
 import { SqliteTaskRepository } from '../src/infrastructure/database/task-repository';
-import { coachPrompt } from '../src/prompts/coach';
+import { coachPrompt, replyWordLimit } from '../src/prompts/coach';
 import { evaluationPrompt, exercisePrompt, extractionPrompt } from '../src/prompts/knowledge';
 import { access, freshDatabase, sequentialIds } from './helpers';
 
@@ -30,30 +30,52 @@ test('the coach prompt asks for plain, speakable text and handles Chinese questi
   assert.equal(coachPrompt.build({ weakGrammar: [], weakWords: [] }), coachPrompt.text);
 });
 
-test('extraction wraps both messages as data and never needs the coach text', () => {
-  const alone = extractionPrompt.build({ message: 'I go home.' });
-  assert.match(alone, /<learner>I go home\.<\/learner>/);
-  assert.doesNotMatch(alone, /<\/coach>/, 'no coach block without a previous reply');
-  const long = 'x'.repeat(2000);
-  const withContext = extractionPrompt.build({ message: 'Twice.', previousReply: long });
-  // The instructions mention the tags too, so the data block is the last occurrence.
-  const open = withContext.lastIndexOf('<coach>');
-  const coach = withContext.slice(open + '<coach>'.length, withContext.indexOf('</coach>'));
-  assert.ok(coach.length <= 601, 'long coach replies are clipped');
-  assert.ok(open < withContext.lastIndexOf('<learner>'));
+test('the coach prompt sets a hard length limit and its own examples obey it', () => {
+  assert.match(coachPrompt.text, new RegExp(`at most ${replyWordLimit} words`));
+  const replies = coachPrompt.text.split('\n').filter((line) => line.startsWith('You: ')).map((line) => line.slice(6, -1));
+  assert.ok(replies.length >= 2);
+  for (const reply of replies) {
+    const words = reply.split(/\s+/).filter((word) => /[A-Za-z]/.test(word));
+    assert.ok(words.length <= replyWordLimit, `${words.length} words: ${reply}`);
+    assert.equal(reply.split('?').length - 1, 1, `exactly one question: ${reply}`);
+    for (const sentence of reply.split(/(?<=[.!?])\s+/)) assert.ok(sentence.split(/\s+/).length <= 15, sentence);
+  }
 });
 
-test('extraction is given the coach reply the learner was answering', async () => {
+test('extraction wraps the learner message and both coach turns as data', () => {
+  const alone = extractionPrompt.build({ message: 'I go home.' });
+  assert.match(alone, /<learner>I go home\.<\/learner>/);
+  assert.doesNotMatch(alone, /<\/coach_before>|<\/coach_answer>/, 'no coach blocks without coach turns');
+  const long = 'x'.repeat(2000);
+  const full = extractionPrompt.build({ message: 'How do you say 美味?', previousReply: long, answer: 'You can say delicious.' });
+  // The instructions mention the tags too, so each data block is the last occurrence.
+  const block = (tag: string) => full.slice(full.lastIndexOf(`<${tag}>`) + tag.length + 2, full.lastIndexOf(`</${tag}>`));
+  assert.ok(block('coach_before').length <= 601, 'long coach replies are clipped');
+  assert.equal(block('coach_answer'), 'You can say delicious.');
+  assert.ok(full.lastIndexOf('<coach_before>') < full.lastIndexOf('<learner>'));
+  assert.ok(full.lastIndexOf('<learner>') < full.lastIndexOf('<coach_answer>'));
+  assert.match(full, /never from the coach/);
+});
+
+test('extraction is given the coach turn before the message and the coach answer to it', async () => {
   const db = await freshDatabase();
   db.sqlite.exec(`INSERT INTO sessions VALUES ('s1', 'p1', 't', 'now');
     INSERT INTO messages VALUES ('a0', 's1', 'assistant', 'Old question?', 'complete', '2026-09-21T09:00:00Z');
     INSERT INTO messages VALUES ('u1', 's1', 'user', 'Hi', 'complete', '2026-09-21T09:01:00Z');
     INSERT INTO messages VALUES ('a1', 's1', 'assistant', 'How many times did you go?', 'complete', '2026-09-21T09:02:00Z');
     INSERT INTO messages VALUES ('a2', 's1', 'assistant', '', 'failed', '2026-09-21T09:02:30Z');
-    INSERT INTO messages VALUES ('u2', 's1', 'user', 'I go there twice.', 'complete', '2026-09-21T09:03:00Z')`);
+    INSERT INTO messages VALUES ('u2', 's1', 'user', 'I go there twice. How to say 美味?', 'complete', '2026-09-21T09:03:00Z');
+    INSERT INTO messages VALUES ('a3', 's1', 'assistant', 'You can say delicious.', 'complete', '2026-09-21T09:03:00Z');
+    INSERT INTO messages VALUES ('u3', 's1', 'user', 'Thanks', 'complete', '2026-09-21T09:04:00Z');
+    INSERT INTO messages VALUES ('a4', 's1', 'assistant', 'Partial', 'interrupted', '2026-09-21T09:04:30Z');
+    INSERT INTO messages VALUES ('u4', 's1', 'user', 'Bye', 'complete', '2026-09-21T09:05:00Z');
+    INSERT INTO messages VALUES ('a5', 's1', 'assistant', 'Bye!', 'complete', '2026-09-21T09:06:00Z')`);
   const conversation = new SqliteConversationRepository(db);
   assert.equal((await conversation.replyBefore('u2'))?.id, 'a1', 'empty or failed replies are skipped');
-  assert.equal((await conversation.replyBefore('a0')), null);
+  assert.equal(await conversation.replyBefore('a0'), null);
+  assert.equal((await conversation.replyAfter('u2'))?.id, 'a3', 'same timestamp, later row');
+  assert.equal(await conversation.replyAfter('u3'), null, 'an interrupted answer is partial, and a later turn is not this answer');
+  assert.equal((await conversation.replyAfter('u1'))?.id, 'a1');
 
   const prompts: string[] = [];
   const gateway: ModelGateway = {
@@ -66,8 +88,9 @@ test('extraction is given the coach reply the learner was answering', async () =
   });
   await service.enqueueExtraction('u2');
   await service.runPending(new AbortController().signal);
-  assert.match(prompts[0]!, /<coach>How many times did you go\?<\/coach>/);
-  assert.match(prompts[0]!, /<learner>I go there twice\.<\/learner>/);
+  assert.match(prompts[0]!, /<coach_before>How many times did you go\?<\/coach_before>/);
+  assert.match(prompts[0]!, /<learner>I go there twice\. How to say 美味\?<\/learner>/);
+  assert.match(prompts[0]!, /<coach_answer>You can say delicious\.<\/coach_answer>/);
 });
 
 test('review targets carry English names, meanings and the learner\'s own mistakes into the exercise prompt', async () => {
