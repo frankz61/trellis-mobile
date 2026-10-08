@@ -25,3 +25,14 @@ export function nextWordMastery(current: WordMastery, correct: boolean, now: Dat
 export function nextWeakness(count: number, correct: boolean): number {
   return Math.max(0, count + (correct ? -1 : 1));
 }
+
+// Grammar points have a weakness count but no level, so spacing follows the last outcome:
+// a correct answer rests the point for a few days, a wrong one brings it back tomorrow, and a
+// fresh mistake in conversation (see applyExtraction) makes it due straight away. Without this
+// the same weakest points would be drilled every day.
+export const grammarRestDays = { correct: 3, incorrect: 1 } as const;
+
+export function nextGrammarReview(count: number, correct: boolean, now: Date): { weakness: number; dueAt: string } {
+  const days = correct ? grammarRestDays.correct : grammarRestDays.incorrect;
+  return { weakness: nextWeakness(count, correct), dueAt: new Date(now.getTime() + days * dayMs).toISOString() };
+}

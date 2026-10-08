@@ -1,5 +1,5 @@
 import { grammarLabel } from '../../domain/knowledge';
-import { nextWeakness, nextWordMastery, type WordMastery } from '../../domain/mastery';
+import { nextGrammarReview, nextWordMastery, type WordMastery } from '../../domain/mastery';
 import type { AttemptStatus, DailyPlan, GeneratedExercise, ReviewAttempt, ReviewTarget, TargetType } from '../../domain/practice';
 import type { ExerciseWithAttempt, PracticeRepository } from '../../repositories/contracts';
 import type { Database } from './database';
@@ -96,11 +96,12 @@ export class SqlitePracticeRepository implements PracticeRepository {
         const existing = await db.getFirstAsync<{ count: number }>(
           'SELECT weakness_count AS count FROM grammar_mastery WHERE profile_id = ? AND grammar_id = ?', mastery.profileId, mastery.targetId,
         );
-        const count = nextWeakness(existing?.count ?? 0, mastery.correct);
+        const next = nextGrammarReview(existing?.count ?? 0, mastery.correct, new Date(now));
         await db.runAsync(
-          `INSERT INTO grammar_mastery (profile_id, grammar_id, weakness_count, due_at, updated_at) VALUES (?, ?, ?, NULL, ?)
-           ON CONFLICT(profile_id, grammar_id) DO UPDATE SET weakness_count = excluded.weakness_count, updated_at = excluded.updated_at`,
-          mastery.profileId, mastery.targetId, count, now,
+          `INSERT INTO grammar_mastery (profile_id, grammar_id, weakness_count, due_at, updated_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(profile_id, grammar_id) DO UPDATE SET weakness_count = excluded.weakness_count,
+             due_at = excluded.due_at, updated_at = excluded.updated_at`,
+          mastery.profileId, mastery.targetId, next.weakness, next.dueAt, now,
         );
       }
     });

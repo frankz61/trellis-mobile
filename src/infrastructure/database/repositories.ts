@@ -3,7 +3,7 @@ import type { Database } from './database';
 import type { ModelSettings } from '../../domain/settings';
 import type { SynthesisFormat, VoiceEngine, VoiceSettings } from '../../domain/voice';
 import type { LearningRepository, SettingsRepository, VoiceSettingsRepository } from '../../repositories/contracts';
-import type { MistakeEntry, VocabularyEntry } from '../../domain/learning';
+import type { MessageNotes, MistakeEntry, VocabularyEntry } from '../../domain/learning';
 
 export class SqliteSettingsRepository implements SettingsRepository {
   constructor(private readonly database: Database) {}
@@ -85,6 +85,25 @@ export class SqliteLearningRepository implements LearningRepository {
        WHERE EXISTS (SELECT 1 FROM word_evidence e WHERE e.word_id = w.id)
        ORDER BY w.lemma LIMIT 100`,
     );
+  }
+
+  async messageNotes(sessionId: string): Promise<Record<string, MessageNotes>> {
+    const [mistakes, words] = await Promise.all([
+      this.database.getAllAsync<MistakeEntry & { messageId: string }>(
+        `SELECT mi.message_id AS messageId, mi.id, mi.original, mi.corrected, mi.type, mi.explanation
+         FROM mistakes mi JOIN messages m ON m.id = mi.message_id WHERE m.session_id = ? ORDER BY mi.rowid`, sessionId,
+      ),
+      this.database.getAllAsync<{ messageId: string; id: string; lemma: string; meaning: string }>(
+        `SELECT e.message_id AS messageId, w.id, w.lemma, w.meaning
+         FROM word_evidence e JOIN words w ON w.id = e.word_id JOIN messages m ON m.id = e.message_id
+         WHERE m.session_id = ? ORDER BY e.rowid`, sessionId,
+      ),
+    ]);
+    const notes: Record<string, MessageNotes> = {};
+    const of = (id: string) => (notes[id] ??= { mistakes: [], words: [] });
+    for (const { messageId, ...mistake } of mistakes) of(messageId).mistakes.push(mistake);
+    for (const { messageId, ...word } of words) of(messageId).words.push(word);
+    return notes;
   }
 
   mistakes(): Promise<MistakeEntry[]> {

@@ -23,6 +23,8 @@ export interface DailyPractice {
   exercises: ExerciseWithAttempt[];
   // False when nothing is due yet, so the UI can say so instead of offering generation.
   hasTargets: boolean;
+  // What today's set would cover, so the home screen can say what is waiting.
+  due: { words: number; grammar: number };
 }
 
 export const noTargetsMessage = '还没有需要复习的内容。先去“陪练”聊几句，记录下生词和错因。';
@@ -42,12 +44,17 @@ export class PracticeService {
   async today(): Promise<DailyPractice> {
     const plan = await this.deps.practice.latestPlan(this.deps.profileId, localDate(this.now()));
     const [exercises, targets] = await Promise.all([plan ? this.deps.practice.exercises(plan.id) : [], this.targets()]);
-    return { plan, exercises, hasTargets: targets.length > 0 };
+    const due = {
+      words: targets.filter((t) => t.type === 'word').length,
+      grammar: targets.filter((t) => t.type === 'grammar').length,
+    };
+    return { plan, exercises, hasTargets: targets.length > 0, due };
   }
 
   // Creates a new plan version. Items the model fails to produce are skipped, never faked;
   // an empty result is an error rather than an empty plan.
-  async generate(signal: AbortSignal): Promise<DailyPractice> {
+  // `onProgress` reports each finished item: one model call per target can take a while.
+  async generate(signal: AbortSignal, onProgress?: (done: number, total: number) => void): Promise<DailyPractice> {
     const targets = await this.targets();
     if (!targets.length) throw new Error(noTargetsMessage);
     const gateway = await this.deps.access.gateway();
@@ -56,6 +63,7 @@ export class PracticeService {
       const raw = await gateway.complete([{ role: 'user', content: exercisePrompt.build(target) }], withTimeout(signal, structuredCallTimeoutMs));
       const exercise = parseExercise(parseModelJson(raw));
       if (exercise) generated.push({ ...exercise, id: this.deps.createId(), target });
+      onProgress?.(targets.indexOf(target) + 1, targets.length);
     }
     if (!generated.length) throw new Error('这次没有生成出可用的题目，请稍后重试。');
     const now = this.now();

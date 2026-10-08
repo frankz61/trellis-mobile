@@ -48,9 +48,10 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
         }
         await db.runAsync('INSERT INTO mistake_grammar_links (mistake_id, grammar_id) VALUES (?, ?)', mistakeId, grammar.id);
         await db.runAsync(
-          `INSERT INTO grammar_mastery (profile_id, grammar_id, weakness_count, due_at, updated_at) VALUES (?, ?, 1, NULL, ?)
-           ON CONFLICT(profile_id, grammar_id) DO UPDATE SET weakness_count = weakness_count + 1, updated_at = excluded.updated_at`,
-          profileId, grammar.id, now,
+          `INSERT INTO grammar_mastery (profile_id, grammar_id, weakness_count, due_at, updated_at) VALUES (?, ?, 1, ?, ?)
+           ON CONFLICT(profile_id, grammar_id) DO UPDATE SET weakness_count = weakness_count + 1,
+             due_at = excluded.due_at, updated_at = excluded.updated_at`,
+          profileId, grammar.id, now, now,
         );
         counts.mistakes += 1;
       }
@@ -78,7 +79,8 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
       this.database.getAllAsync<{ id: string; name: string; count: number }>(
         `SELECT g.id, g.name, gm.weakness_count AS count FROM grammar_mastery gm
          JOIN grammar_points g ON g.id = gm.grammar_id
-         WHERE gm.profile_id = ? AND gm.weakness_count > 0 ORDER BY gm.weakness_count DESC, g.name LIMIT ?`, profileId, limits.grammar,
+         WHERE gm.profile_id = ? AND gm.weakness_count > 0 AND (gm.due_at IS NULL OR gm.due_at <= ?)
+         ORDER BY gm.weakness_count DESC, g.name LIMIT ?`, profileId, now, limits.grammar,
       ),
       this.database.getAllAsync<{ id: string; lemma: string; meaning: string; level: number }>(
         `SELECT w.id, w.lemma, w.meaning, wm.level FROM word_mastery wm JOIN words w ON w.id = wm.word_id

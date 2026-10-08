@@ -38,6 +38,7 @@ export function TodayScreen({ services, openSettings, openLibrary, openPractice 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [practiceError, setPracticeError] = useState('');
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -71,22 +72,50 @@ export function TodayScreen({ services, openSettings, openLibrary, openPractice 
     } finally {
       if (request.current === controller) request.current = null;
       setBusy(null);
+      setProgress(null);
     }
   }
 
   const generating = busy === 'generate';
+  const generate = () => void run('generate', (signal) => services.practice.generate(signal, (done, total) => setProgress({ done, total })));
+  const generateLabel = generating ? (progress ? `正在出题 ${progress.done}/${progress.total}…` : '正在出题…') : null;
+  const finished = practice?.exercises.filter((e) => e.attempt && e.attempt.status !== 'pending').length ?? 0;
+
+  // Once the coach is set up, today's review is the first thing on screen; the introduction only
+  // matters before that.
+  const practiceCard = <Card>
+    <Text style={styles.sectionTitle}>今天的练习</Text>
+    {practice === null ? <Notice text="正在读取…" /> : practice.plan === null ? <>
+      <Text style={styles.body}>{practice.hasTargets
+        ? `今天有 ${[practice.due.words ? `${practice.due.words} 个生词` : '', practice.due.grammar ? `${practice.due.grammar} 个语法点` : ''].filter(Boolean).join('、')}到了复习时间。题目由模型按你自己的错误生成，今天内重复打开不会再次出题。`
+        : '今天没有到期的复习。去“陪练”聊几句，新的生词和错因会排进之后的复习。'}</Text>
+      {practice.hasTargets
+        ? <Button label={generateLabel ?? '生成今天的练习'} disabled={!configured || Boolean(busy)} onPress={generate} />
+        : <Button label="去陪练" onPress={openPractice} secondary />}
+    </> : <>
+      <Text style={local.progress}>已完成 {finished} / {practice.exercises.length} 题</Text>
+      {practice.exercises.map((exercise) => <ExerciseCard key={exercise.id} exercise={exercise} answer={answers[exercise.id] ?? ''}
+        busy={busy === exercise.id} onAnswer={(text) => setAnswers({ ...answers, [exercise.id]: text })}
+        onSubmit={() => void run(exercise.id, (signal) => services.practice.answer(exercise.id, answers[exercise.id] ?? '', signal))} />)}
+      <Notice text="填空题答案完全一致时在本机判分，其余由模型评价；掌握度按本地规则更新，每题只计一次。" />
+      <Button label={generateLabel ?? '重新生成（保留已完成的题）'} secondary disabled={Boolean(busy)} onPress={generate} />
+    </>}
+    {practiceError ? <Notice text={practiceError} error /> : null}
+  </Card>;
+
   return <Page>
     <Heading eyebrow="GROW YOUR ENGLISH" title="一点点，也在生长。" subtitle="把每一次表达，变成下一次进步。" />
-    <View style={local.hero}>
+    {configured ? practiceCard : <View style={local.hero}>
       <Text style={local.heroTag}>你的英语学习空间</Text>
-      <Text style={local.heroTitle}>{configured ? '准备好，开始积累。' : '从认识你的教练开始'}</Text>
-      <Text style={local.heroBody}>{configured
-        ? '模型已连接。去“陪练”用英语聊几句，生词和错因会记录下来，成为今天的练习。'
-        : '先连接你使用的 AI 模型。学习记录留在手机里，陪练时按需发送相关上下文。'}</Text>
-      {configured
-        ? <><Button label="开始陪练" onPress={openPractice} secondary /><Button label="查看模型设置" onPress={openSettings} secondary /></>
-        : <Button label="配置我的 AI 教练" onPress={openSettings} secondary />}
+      <Text style={local.heroTitle}>从认识你的教练开始</Text>
+      <Text style={local.heroBody}>先连接你使用的 AI 模型。学习记录留在手机里，陪练时按需发送相关上下文。</Text>
+      <Button label="配置我的 AI 教练" onPress={openSettings} secondary />
+    </View>}
+    <View style={styles.row}>
+      <View style={{ flex: 1 }}><Button label="去陪练" onPress={openPractice} /></View>
+      <View style={{ flex: 1 }}><Button label="我的积累" onPress={openLibrary} secondary /></View>
     </View>
+    {error ? <Notice text={error} error /> : null}
     <Text style={styles.sectionTitle}>我的积累</Text>
     <View style={styles.row}>
       {[['单词', summary?.words], ['错因', summary?.mistakes], ['对话', summary?.sessions]].map(([label, value]) =>
@@ -94,28 +123,6 @@ export function TodayScreen({ services, openSettings, openLibrary, openPractice 
           <Text style={local.number}>{value ?? '—'}</Text><Text style={styles.notice}>{label}</Text>
         </View>)}
     </View>
-    {error ? <Notice text={error} error /> : null}
-    <Card>
-      <Text style={styles.sectionTitle}>今天的练习</Text>
-      {practice === null ? <Notice text="正在读取…" /> : practice.plan === null ? <>
-        <Text style={styles.body}>{practice.hasTargets
-          ? '根据你最近的生词和薄弱点出几道题；题目由模型生成，今天内重复打开不会再次出题。'
-          : '还没有需要复习的内容。先去“陪练”聊几句，记录下生词和错因，这里才会有针对你的练习。'}</Text>
-        {practice.hasTargets
-          ? <Button label={generating ? '正在出题…' : '生成今天的练习'} disabled={!configured || Boolean(busy)}
-            onPress={() => void run('generate', (signal) => services.practice.generate(signal))} />
-          : <Button label="去陪练" onPress={openPractice} secondary />}
-      </> : <>
-        {practice.exercises.map((exercise) => <ExerciseCard key={exercise.id} exercise={exercise} answer={answers[exercise.id] ?? ''}
-          busy={busy === exercise.id} onAnswer={(text) => setAnswers({ ...answers, [exercise.id]: text })}
-          onSubmit={() => void run(exercise.id, (signal) => services.practice.answer(exercise.id, answers[exercise.id] ?? '', signal))} />)}
-        <Notice text="填空题答案完全一致时在本机判分，其余由模型评价；掌握度按本地规则更新，每题只计一次。" />
-        <Button label={generating ? '正在出题…' : '重新生成（保留已完成的题）'} secondary disabled={Boolean(busy)}
-          onPress={() => void run('generate', (signal) => services.practice.generate(signal))} />
-      </>}
-      {practiceError ? <Notice text={practiceError} error /> : null}
-      <Button label="看看我的积累" onPress={openLibrary} secondary />
-    </Card>
   </Page>;
 }
 
@@ -130,4 +137,5 @@ const local = StyleSheet.create({
   exerciseMeta: { fontSize: 12, color: colors.green, fontWeight: '700', letterSpacing: 0.5 },
   exercisePrompt: { fontSize: 16, lineHeight: 25, color: colors.ink },
   verdict: { fontSize: 14, fontWeight: '700', color: colors.green },
+  progress: { fontSize: 14, fontWeight: '700', color: colors.green },
 });

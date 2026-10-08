@@ -2,7 +2,7 @@ import type { BackupRow, BackupTable } from '../domain/backup';
 import type { ConversationMessage, ConversationSession, MessageStatus } from '../domain/conversation';
 import type { Extraction } from '../domain/knowledge';
 import type { GraphSnapshot } from '../domain/graph';
-import type { LearningSummary, MistakeEntry, TaskStatus, VocabularyEntry } from '../domain/learning';
+import type { LearningSummary, MistakeEntry, TaskStatus, VocabularyEntry, MessageNotes } from '../domain/learning';
 import type { WordMastery } from '../domain/mastery';
 import type { AttemptStatus, DailyPlan, Exercise, GeneratedExercise, ReviewAttempt, ReviewTarget, TargetType } from '../domain/practice';
 import type { ModelSettings } from '../domain/settings';
@@ -33,6 +33,8 @@ export interface LearningRepository {
   summary(): Promise<LearningSummary>;
   vocabulary(): Promise<VocabularyEntry[]>;
   mistakes(): Promise<MistakeEntry[]>;
+  // Notes for every message of a session that has any, keyed by message id.
+  messageNotes(sessionId: string): Promise<Record<string, MessageNotes>>;
 }
 
 export interface ConversationRepository {

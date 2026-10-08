@@ -84,9 +84,14 @@ export function parseExtraction(payload: unknown): Extraction | null {
     mistakes.push({ original, corrected, type, explanation: asString(item.explanation).slice(0, maxTextLength) });
   }
 
+  return { mistakes: mistakes.slice(0, maxItemsPerExtraction), words: parseWords(rawWords ?? []).slice(0, maxItemsPerExtraction) };
+}
+
+// Words or short phrases (up to three words) with a Chinese meaning; anything else is dropped.
+export function parseWords(raw: unknown[]): ExtractedWord[] {
   const words: ExtractedWord[] = [];
   const seen = new Set<string>();
-  for (const item of rawWords ?? []) {
+  for (const item of raw) {
     if (!isRecord(item)) continue;
     const lemma = asString(item.lemma).toLowerCase();
     const meaning = asString(item.meaning_cn ?? item.meaning).slice(0, maxTextLength);
@@ -94,8 +99,22 @@ export function parseExtraction(payload: unknown): Extraction | null {
     seen.add(lemma);
     words.push({ lemma, meaning });
   }
+  return words;
+}
 
-  return { mistakes: mistakes.slice(0, maxItemsPerExtraction), words: words.slice(0, maxItemsPerExtraction) };
+// A coach reply explained for the learner: a Chinese translation and a few words worth learning.
+export interface ReplyExplanation {
+  translation: string;
+  words: ExtractedWord[];
+}
+
+export const maxExplainedWords = 3;
+
+export function parseExplanation(payload: unknown): ReplyExplanation | null {
+  if (!isRecord(payload)) return null;
+  const translation = asString(payload.translation).slice(0, 1000);
+  if (!translation) return null;
+  return { translation, words: parseWords(Array.isArray(payload.words) ? payload.words : []).slice(0, maxExplainedWords) };
 }
 
 // Stable per-message key so re-running an extraction never duplicates a mistake.

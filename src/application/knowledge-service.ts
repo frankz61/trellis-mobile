@@ -1,8 +1,8 @@
 import { ModelRequestError } from '../contracts/model';
 import { isAbortError, structuredCallTimeoutMs, withTimeout } from './abort';
-import { parseExtraction } from '../domain/knowledge';
+import { parseExplanation, parseExtraction, type ExtractedWord, type ReplyExplanation } from '../domain/knowledge';
 import { parseModelJson } from '../domain/model-json';
-import { extractionPrompt } from '../prompts/knowledge';
+import { explanationPrompt, extractionPrompt } from '../prompts/knowledge';
 import type { ConversationRepository, KnowledgeRepository, PersistedTask, TaskRepository, WeakPoints } from '../repositories/contracts';
 import type { ModelAccess } from './model-access';
 
@@ -50,6 +50,22 @@ export class KnowledgeService {
 
   weakPoints(): Promise<WeakPoints> {
     return this.deps.knowledge.weakPoints(this.deps.profileId);
+  }
+
+  // On demand, when the learner does not understand a coach reply: one model call, nothing stored.
+  async explainReply(messageId: string, signal: AbortSignal): Promise<ReplyExplanation> {
+    const message = await this.deps.conversation.message(messageId);
+    if (!message || message.role !== 'assistant' || !message.content.trim()) throw new Error('这条回复没有可以解释的内容。');
+    const gateway = await this.deps.access.gateway();
+    const raw = await gateway.complete([{ role: 'user', content: explanationPrompt.build(message.content) }], withTimeout(signal, structuredCallTimeoutMs));
+    const explanation = parseExplanation(parseModelJson(raw));
+    if (!explanation) throw new ModelRequestError('翻译结果无法解析，请再试一次。', 'protocol');
+    return explanation;
+  }
+
+  // The learner chose to keep a word from a coach reply; the reply is recorded as where it was met.
+  async saveWord(messageId: string, word: ExtractedWord): Promise<void> {
+    await this.deps.knowledge.applyExtraction(this.deps.profileId, messageId, { words: [word], mistakes: [] }, this.now());
   }
 
   // Drains the queue one task at a time. Model failures back off and give up after

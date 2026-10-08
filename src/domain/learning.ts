@@ -23,3 +23,9 @@ export interface MistakeEntry {
   type: string;
   explanation: string;
 }
+
+// What was recorded from one message: corrections of the learner's text and words saved from it.
+export interface MessageNotes {
+  mistakes: MistakeEntry[];
+  words: { id: string; lemma: string; meaning: string }[];
+}

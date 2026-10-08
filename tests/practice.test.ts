@@ -58,8 +58,11 @@ test('a daily plan is generated once from due targets, reused, and versioned on 
   const before = await f.service.today();
   assert.equal(before.plan, null);
   assert.equal(before.hasTargets, true);
+  assert.deepEqual(before.due, { words: 1, grammar: 1 });
 
-  const first = await f.service.generate(new AbortController().signal);
+  const progress: string[] = [];
+  const first = await f.service.generate(new AbortController().signal, (done, total) => progress.push(`${done}/${total}`));
+  assert.deepEqual(progress, ['1/2', '2/2']);
   assert.equal(first.plan?.version, 1);
   assert.equal(first.plan?.localDate, '2026-09-21');
   assert.equal(first.plan?.timezone, 'Asia/Shanghai');

@@ -30,8 +30,9 @@ export class SqliteGraphRepository implements GraphRepository {
       db.getAllAsync<GraphSnapshot['sentences'][number]>(
         `SELECT msg.id, msg.content, msg.created_at AS createdAt FROM messages msg
          JOIN sessions s ON s.id = msg.session_id AND s.profile_id = ?
-         WHERE EXISTS (SELECT 1 FROM word_evidence e WHERE e.message_id = msg.id)
-            OR EXISTS (SELECT 1 FROM mistakes mi WHERE mi.message_id = msg.id)
+         -- Only the learner's own sentences; words saved from coach replies stay unlinked nodes.
+         WHERE msg.role = 'user' AND (EXISTS (SELECT 1 FROM word_evidence e WHERE e.message_id = msg.id)
+            OR EXISTS (SELECT 1 FROM mistakes mi WHERE mi.message_id = msg.id))
          ORDER BY msg.created_at`,
         profileId,
       ),

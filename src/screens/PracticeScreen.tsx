@@ -4,21 +4,74 @@ import type { AppServices } from '../app/bootstrap';
 import { Button, Card, colors, Notice, styles } from '../components/ui';
 import type { RecognitionCapability } from '../contracts/speech';
 import { maxUserMessageLength, type ConversationMessage } from '../domain/conversation';
+import { grammarLabel, type ExtractedWord, type ReplyExplanation } from '../domain/knowledge';
+import type { MessageNotes } from '../domain/learning';
 
 const statusLabel: Partial<Record<ConversationMessage['status'], string>> = {
   interrupted: '回复已中断',
   failed: '回复失败',
 };
 
-function Bubble({ message, speaking, onSpeak }: { message: ConversationMessage; speaking: boolean; onSpeak?: () => void }) {
+type Explanation = ReplyExplanation | 'loading' | { error: string };
+
+// What was recorded from one of the learner's messages: shown under the bubble, opened on tap.
+function NotesToggle({ notes, open, onToggle }: { notes: MessageNotes; open: boolean; onToggle: () => void }) {
+  const parts = [notes.mistakes.length ? `${notes.mistakes.length} 处可改进` : '', notes.words.length ? `${notes.words.length} 个生词` : ''].filter(Boolean);
+  return <View style={local.notesRow}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${parts.join('，')}，${open ? '收起' : '展开'}`}
+      onPress={onToggle} style={local.notesToggle}>
+      <Text style={local.notesToggleLabel}>{parts.join(' · ')} {open ? '▴' : '▾'}</Text>
+    </Pressable>
+    {open ? <View style={local.notesCard}>
+      {notes.mistakes.map((m) => <View key={m.id} style={local.noteItem}>
+        <Text style={local.noteTag}>{grammarLabel(m.type)}</Text>
+        <Text style={local.noteOriginal}>{m.original}</Text>
+        <Text style={local.noteCorrected}>→ {m.corrected}</Text>
+        {m.explanation ? <Text style={styles.notice}>{m.explanation}</Text> : null}
+      </View>)}
+      {notes.words.map((w) => <View key={w.id} style={local.noteItem}>
+        <Text style={local.noteTag}>生词</Text>
+        <Text style={local.noteCorrected}>{w.lemma}</Text>
+        <Text style={styles.notice}>{w.meaning}</Text>
+      </View>)}
+    </View> : null}
+  </View>;
+}
+
+function Bubble({ message, speaking, onSpeak, explanation, onExplain, savedWords, onSaveWord }: {
+  message: ConversationMessage; speaking: boolean; onSpeak?: () => void;
+  explanation?: Explanation; onExplain?: () => void; savedWords?: Set<string>; onSaveWord?: (word: ExtractedWord) => void;
+}) {
   const mine = message.role === 'user';
   const placeholder = message.content ? null : message.status === 'pending' ? '…' : '（没有收到回复内容）';
+  const ready = Boolean(message.content) && message.status !== 'pending';
+  const explained = explanation && typeof explanation === 'object' && 'translation' in explanation ? explanation : null;
+  const failed = explanation && typeof explanation === 'object' && 'error' in explanation ? explanation.error : null;
   return <View style={[local.bubbleRow, mine && local.bubbleRowMine]}>
     <View style={[local.bubble, mine ? local.bubbleMine : local.bubbleCoach]} accessibilityLabel={mine ? '我说' : '教练说'}>
       <Text style={[local.bubbleText, mine && local.bubbleTextMine, placeholder && !mine && local.bubblePlaceholder]}>{placeholder ?? message.content}</Text>
       {statusLabel[message.status] ? <Text style={local.bubbleStatus}>{statusLabel[message.status]}</Text> : null}
-      {onSpeak && message.content && message.status !== 'pending' ? <Pressable accessibilityRole="button" accessibilityLabel={speaking ? '停止朗读' : '朗读这句'}
-        onPress={onSpeak} style={local.speak}><Text style={local.speakLabel}>{speaking ? '■ 停止' : '▶ 朗读'}</Text></Pressable> : null}
+      {explained ? <View style={local.explanation}>
+        <Text style={local.translation}>{explained.translation}</Text>
+        {explained.words.map((word) => {
+          const saved = savedWords?.has(word.lemma) ?? false;
+          return <View key={word.lemma} style={local.explainWord}>
+            <Text style={local.explainLemma}>{word.lemma}<Text style={styles.notice}>  {word.meaning}</Text></Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={saved ? `${word.lemma} 已加入生词` : `把 ${word.lemma} 加入生词`}
+              disabled={saved} onPress={() => onSaveWord?.(word)} style={local.chipButton}>
+              <Text style={local.chipButtonLabel}>{saved ? '✓ 已加入' : '+ 生词'}</Text>
+            </Pressable>
+          </View>;
+        })}
+      </View> : null}
+      {failed ? <Text style={local.bubbleStatus}>{failed}</Text> : null}
+      {ready && (onSpeak || onExplain) ? <View style={local.actions}>
+        {onSpeak ? <Pressable accessibilityRole="button" accessibilityLabel={speaking ? '停止朗读' : '朗读这句'}
+          onPress={onSpeak} style={local.speak}><Text style={local.speakLabel}>{speaking ? '■ 停止' : '▶ 朗读'}</Text></Pressable> : null}
+        {onExplain && (!explanation || failed) ? <Pressable accessibilityRole="button" accessibilityLabel="翻译这句并挑出生词"
+          onPress={onExplain} style={local.speak}><Text style={local.speakLabel}>译</Text></Pressable> : null}
+        {explanation === 'loading' ? <Text style={local.loading}>翻译中…</Text> : null}
+      </View> : null}
     </View>
   </View>;
 }
@@ -35,6 +88,11 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
   const [listening, setListening] = useState<RecognitionCapability['mode'] | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceNote, setVoiceNote] = useState('');
+  const [notes, setNotes] = useState<Record<string, MessageNotes>>({});
+  const [openNotes, setOpenNotes] = useState<string | null>(null);
+  const [explanations, setExplanations] = useState<Record<string, Explanation>>({});
+  const explaining = useRef(new Set<AbortController>());
+  const sessionId = useRef<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const recognizing = useRef<AbortController | null>(null);
   const finishing = useRef<AbortController | null>(null);
@@ -46,6 +104,8 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
     Promise.all([services.conversation.restore(), services.settings.load(), services.voiceSettings.load()]).then(([history, config, voice]) => {
       if (!active) return;
       setMessages(history);
+      sessionId.current = history[0]?.sessionId ?? null;
+      void refreshNotes();
       setRate(voice.settings.synthesis.speechRate);
       setConfigured(config.hasApiKey && Boolean(config.settings.baseUrl && config.settings.model));
     }).catch(() => { if (active) setError('无法读取对话记录，请重新打开应用。'); });
@@ -55,14 +115,52 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
       controller.current?.abort();
       extracting.current?.abort();
       recognizing.current?.abort();
+      for (const request of explaining.current) request.abort();
       void services.speech.stop().catch(() => undefined);
     };
   }, [services]);
 
+  async function refreshNotes() {
+    if (!sessionId.current) return;
+    try {
+      setNotes(await services.learning.messageNotes(sessionId.current));
+    } catch { /* notes are a convenience; the conversation itself is unaffected */ }
+  }
+
+  // On demand, one model call per reply; the result lives only on this screen.
+  async function explain(message: ConversationMessage) {
+    const request = new AbortController();
+    explaining.current.add(request);
+    setExplanations((current) => ({ ...current, [message.id]: 'loading' }));
+    try {
+      const result = await services.knowledge.explainReply(message.id, request.signal);
+      setExplanations((current) => ({ ...current, [message.id]: result }));
+    } catch (cause) {
+      if (request.signal.aborted) return;
+      setExplanations((current) => ({ ...current, [message.id]: { error: cause instanceof Error ? cause.message : '翻译失败，请再试一次。' } }));
+    } finally {
+      explaining.current.delete(request);
+    }
+  }
+
+  async function saveWord(message: ConversationMessage, word: ExtractedWord) {
+    try {
+      await services.knowledge.saveWord(message.id, word);
+      await refreshNotes();
+    } catch {
+      setVoiceNote('加入生词失败，请再试一次。');
+    }
+  }
+
   // Scroll after layout, not on state change: a long history is not measured yet when the effect runs,
   // and the keyboard shrinks the list without changing its content. The extra frame lets the native
   // side commit the new content size first; scrolling inside the callback itself is a no-op on Fabric.
-  const scrollToLatest = () => { requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); };
+  // Only follow the bottom while the learner is there: opening notes or a translation further up
+  // also changes the content size and must not yank them away from what they are reading.
+  const atBottom = useRef(true);
+  const scrollToLatest = () => {
+    if (atBottom.current) requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false }));
+  };
 
   // Knowledge extraction runs after the reply, as a persisted task, so a crash or an
   // abort here only delays it: the task is retried on the next launch.
@@ -78,6 +176,7 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
         recorded = true; words += outcome.words; mistakes += outcome.mistakes;
       });
       if (request.signal.aborted) return;
+      if (recorded) void refreshNotes();
       if (recorded) {
         setExtraction(words || mistakes ? `已记录 ${words} 个生词、${mistakes} 处纠错，可在“积累”查看。` : '这轮对话没有需要记录的生词或错因。');
       } else if (result.failed) {
@@ -147,12 +246,18 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
     controller.current = request;
     let persisted = false;
     setDraft('');
+    // Sending always brings the new turn into view.
+    atBottom.current = true;
     setError('');
     setExtraction('');
     setSending(true);
     let completed = false;
     try {
-      const result = await services.conversation.send(text, request.signal, (next) => { persisted = true; setMessages(next); });
+      const result = await services.conversation.send(text, request.signal, (next) => {
+        persisted = true;
+        sessionId.current = next[0]?.sessionId ?? sessionId.current;
+        setMessages(next);
+      });
       completed = result.at(-1)?.status === 'complete';
     } catch (cause) {
       if (!persisted) setDraft(text);
@@ -167,7 +272,10 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
   const empty = messages !== null && messages.length === 0;
   return <View style={local.root}>
     <ScrollView ref={list} style={local.list} contentContainerStyle={local.listContent} keyboardShouldPersistTaps="handled"
-      onContentSizeChange={scrollToLatest} onLayout={scrollToLatest}>
+      onContentSizeChange={scrollToLatest} onLayout={scrollToLatest} scrollEventThrottle={100}
+      onScroll={({ nativeEvent: { contentOffset, layoutMeasurement, contentSize } }) => {
+        atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+      }}>
       {empty ? <>
         <Text style={local.title}>开口，从一个想法开始。</Text>
         <Card>
@@ -176,8 +284,19 @@ export function PracticeScreen({ services, openSettings }: { services: AppServic
           <Notice text="对话会发送给你在“我的”页面配置的模型服务。每轮回复后，会再请求一次模型整理你这句话里的生词与错因，记录到“积累”，并用于安排“今天”的练习。" />
         </Card>
       </> : null}
-      {messages === null ? <Notice text="正在读取对话…" /> : messages.map((message) => <Bubble key={message.id} message={message} speaking={speakingId === message.id}
-        onSpeak={message.role === 'assistant' ? () => void speak(message) : undefined} />)}
+      {messages === null ? <Notice text="正在读取对话…" /> : messages.map((message) => {
+        const recorded = notes[message.id];
+        if (message.role === 'user') {
+          return <View key={message.id} style={local.turn}>
+            <Bubble message={message} speaking={false} />
+            {recorded ? <NotesToggle notes={recorded} open={openNotes === message.id}
+              onToggle={() => setOpenNotes((current) => (current === message.id ? null : message.id))} /> : null}
+          </View>;
+        }
+        return <Bubble key={message.id} message={message} speaking={speakingId === message.id} onSpeak={() => void speak(message)}
+          explanation={explanations[message.id]} onExplain={configured ? () => void explain(message) : undefined}
+          savedWords={new Set(recorded?.words.map((w) => w.lemma))} onSaveWord={(word) => void saveWord(message, word)} />;
+      })}
       {extraction ? <Notice text={extraction} /> : null}
       {voiceNote ? <Notice text={voiceNote} /> : null}
       {error ? <Notice text={error} error /> : null}
@@ -217,6 +336,23 @@ const local = StyleSheet.create({
   speak: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.pale },
   speakLabel: { fontSize: 12, color: colors.green, fontWeight: '700' },
   bubbleStatus: { fontSize: 12, color: colors.error },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  loading: { fontSize: 12, color: colors.muted },
+  explanation: { gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
+  translation: { fontSize: 14, lineHeight: 22, color: colors.muted },
+  explainWord: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  explainLemma: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: colors.ink },
+  chipButton: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.pale },
+  chipButtonLabel: { fontSize: 12, color: colors.green, fontWeight: '700' },
+  turn: { gap: 6 },
+  notesRow: { alignItems: 'flex-end', gap: 6 },
+  notesToggle: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.pale },
+  notesToggleLabel: { fontSize: 12, color: colors.green, fontWeight: '700' },
+  notesCard: { maxWidth: '86%', gap: 10, padding: 14, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  noteItem: { gap: 2 },
+  noteTag: { fontSize: 11, color: colors.green, fontWeight: '700' },
+  noteOriginal: { fontSize: 14, color: colors.muted, textDecorationLine: 'line-through' },
+  noteCorrected: { fontSize: 15, color: colors.ink, fontWeight: '600' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface },
   input: { flex: 1, maxHeight: 132, paddingTop: 14 },
 });
